@@ -1,0 +1,217 @@
+---
+title: "STAT 184 Final Project"
+author: "Tyler Applegate"
+date: "12 / 13 / 2020"
+output: html_notebook
+---
+
+## Research Question
+Within this project report, we will be exploring the numerous factors that are involved in pricing a used car. The main focus of this project is to determine what the most influential factors are in pricing a used car.
+
+**Guiding Question:**
+What are the most influential aspects of a used car that impact the value of the car at resale?
+
+## Load Packages
+```{r}
+library(tidyverse)
+library(DataComputing)
+library(party)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+```
+
+## Data Access
+
+**Primary Data Source**
+```{r}
+PrimaryCars <- read.csv("/Users/tylerapplegate/Desktop/vehicles_updated.csv")
+```
+[Data Link](https://www.kaggle.com/austinreese/craigslist-carstrucks-data)
+
+***Data Inspection***
+```{r}
+head(PrimaryCars)
+```
+
+```{r}
+str(PrimaryCars)
+```
+
+**Secondary Data Source:**
+```{r}
+SecondaryCars <- read.csv("/Users/tylerapplegate/Desktop/USA_cars_datasets.csv")
+```
+[Data Link](https://www.kaggle.com/doaaalsenani/usa-cers-dataset)
+
+***Data Inspection***
+```{r}
+head(SecondaryCars)
+```
+```{r}
+str(SecondaryCars)
+```
+
+## Data Wrangling
+
+**General Data Wrangling - **
+These steps remove the unwanted attributes that contain numerous empty cells, and remove the remaining cases that still contain any empty cells / cells that contain inaccurate information.
+```{r}
+PrimaryCars <-
+  PrimaryCars %>%
+  select("region", "price", "year", "manufacturer", "fuel", "odometer", "transmission", "drive", "paint_color")
+```
+
+```{r}
+PrimaryCars <- 
+  PrimaryCars %>%
+  filter(region != "" | NA, price != "" | NA, year != "" | NA, manufacturer != "" | NA, fuel != "" | NA, odometer != "" | NA, transmission != "" | NA, drive != "" | NA, paint_color != "" | NA, transmission != "other", fuel != "other")
+```
+
+**Regular Expression Locate and Replace Operation - **
+This data set treated the brand "Dodge" and "Ram" as two separate manufacturers, but I wanted to treat them as the same. So, this code replaces every "ram" brand with "dodge".
+```{r}
+PrimaryCars <- 
+  PrimaryCars %>%
+  mutate(manufacturer = gsub(pattern = "ram", replacement = "dodge", x = manufacturer))
+```
+
+**New Data Inspection**
+```{r}
+head(PrimaryCars)
+```
+
+```{r}
+str(PrimaryCars)
+```
+
+**Reduction / Transformation Functions - **
+This code was intended to wrangle the data in a way to see if a correlation exists between the manufacturer of the car and the average resale value of their cars.
+```{r}
+ManufacturerAverage <-
+  PrimaryCars %>%
+  group_by(manufacturer) %>%
+  summarise(total = sum(price), count = n()) %>%
+  mutate(average_price = total / count)
+
+ManufacturerAverage
+```
+
+**Spread / Gather Operation - **
+This wrangling will enable us to easily see the impact on the average resale price of a car based off the drive type of the vehicle and the manufacturer of the vehicle.
+```{r}
+DrivePrice <-
+  PrimaryCars %>%
+  group_by(manufacturer, drive) %>%
+  summarise(total = sum(price), count = n()) %>%
+  mutate(average_price = total / count)
+
+DrivePrice
+```
+
+
+```{r}
+DrivePrice2 <-
+  DrivePrice %>%
+  select("manufacturer", "drive", "average_price") %>%
+  spread(key = drive, value = average_price)
+
+DrivePrice2
+```
+
+**Machine Learning - **
+Within these code chunks I chose the most popular manufacturers (manufacturers with the most data for the model to utilize) alongside some other attributes that I picked in order to get an idea of what factors are most closely correlated to determining the price.
+```{r}
+PrimaryCars %>%
+  group_by(manufacturer) %>%
+  summarise(count = n()) %>%
+  filter(count >= 99) %>%
+  arrange(desc(count))
+```
+
+```{r}
+RegressionCars <-
+  PrimaryCars %>%
+  filter(manufacturer == "ford" | manufacturer == "chevrolet" | manufacturer == "toyota" | manufacturer == "jeep" | manufacturer == "honda" | manufacturer == "nissan" | manufacturer == "dodge" | manufacturer == "gmc")
+```
+
+```{r}
+regressMod <- lm(price ~ year + manufacturer + fuel + odometer + transmission + drive, data = RegressionCars)
+
+regressMod$coefficients
+```
+From this output it appears that the top factors increasing the price includes year, and if it is manufactured by dodge or toyota (these have the greatest coefficients). The top factors decreasing the price of the car include mileage, and if it is manufactured by jeep (the most negative coefficients).
+
+## Data Visualization
+
+**Layered Graphics / Multiple Aesthetics and Geoms - **
+This stacked bar graph displays the average price per car by each manufacturer. The break down of proportion of each type of drive train can be seen as well. From this display, it can easily be seen that Lexus' has the highest average resale value, and they are almost all rear wheel drive vehicles.
+```{r}
+DrivePrice %>%
+  ggplot(aes(fill = drive, y = average_price, x = manufacturer)) +
+  geom_bar(position = "stack", stat = "identity") +
+  ylab("Average Price (US Dollars)") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1), text = element_text(size = 7)) +
+  labs(title = "Average Price Per Car By Manufacturer", fill = "Drive Train") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+This faceted scatter plot illustrates the spread of prices across the years. Also included, are  the four different engine types, and also the various drive trains. This does a good job at showing that four wheel drive vehicles seem to have a higher resale value compared to the other drive train options. It also seems like hybrid and electric cars do not retain as much resale value as diesel or gas vehicles. I also decided to filter out some cases in order to remove extreme cases that disrupted the display of the other data points.
+```{r}
+PrimaryCars %>%
+  filter(price <= 100000, year >= 1980) %>%
+  ggplot(aes(x = year, y = price)) +
+  geom_point(aes(colour = drive), size = 0.5) +
+  ylab("Price (US Dollars)") +
+  xlab("Year") +
+  facet_grid(fuel ~ .) +
+  labs(title = "Price of Vehicle vs. Year \n (Faceted By Engine Type)", fill = "Drive Train") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme(text = element_text(size = 8))
+```
+
+**Box and Whisker Plot - **
+This box plot is another way to examine the average price of a used car by manufacturer. For the remaining graphics I decided to only use the most popular car brands simply due to the fact that these brands have the most cases - these will be truer statistics than a manufacturer with only a few cars. It does appear that there are some "outliers" present within some of the manufactures. These cases could be caused by a typo within the original data, or these cars could be a higher end make / model. Despite this, it seems as if dodge has the highest average price, and honda has the lowest average price. 
+```{r}
+RegressionCars %>%
+  ggplot(aes(x = manufacturer, y = price)) +
+  geom_boxplot(notch = TRUE) +
+  ylab("Price (US Dollar)") +
+  xlab("Manufacturer") +
+  labs(title = "Price Breakdown By Manufacturer") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+**Faceted Scatter Plot w/ Smoother - **
+This scatter plot shows the trend of price vs. mileage on the car. The drive train of the vehicle is also provided, and the display is broken down by the most popular manufacturers. It is no surprise that there is a negative correlation between price and mileage. However, it appears as if the value of some of the manufacturers vehicles depreciates more / their vehicles value depreciates at a faster rate compared to other manufacturers. For example, nissan and honda vehicles are lower prices overall, but the trend line is almost flat with a slight negative slope. Whereas, gmc and ford vehicles value depreciates significantly as the mileage increases with a much higher negative slope. It is also worth mentioning there is a distinct pattern with price and drive train type. It can be easily seen in chevrolet and toyota vehichles where four wheel drive vehicles are all the most expensive (above the trend line), front wheel drive cars are the cheapest (below the trend line), and rear wheel drive cars are in the middle ground (on / near the trend line).
+```{r}
+RegressionCars %>%
+  filter(price <= 100000, odometer <= 200000) %>%
+  ggplot(aes(x = odometer, y = price)) +
+  geom_point(aes(colour = drive), size = 0.25) +
+  facet_wrap(manufacturer ~ .) +
+  geom_smooth(size = 0.5) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+text = element_text(size = 6)) +
+  ylab("Price (US Dollar)") +
+  xlab("Odometer (Miles)") +
+  labs(title = "Price vs. Odometer \n (Faceted By Manufacturer)", fill = "Drive Train") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+**Decision Tree Results - **
+This decision tree is a great break down of illustrating the key components of breaking down the price of a used car. From the decision tree we can conclude that the most expensive used car consists of a vehicle newer than 2016, is four wheel drive, does not have a gas engine (most likely diesel based off of previous graphics), and has less than 34,000 miles. The cheapest used car is older than 2016 model year, and has more than 110,000 miles. Factors that determine the middle ground consist of drive train, fuel type, mileage, and manufacturer (specifically ford, honda, jeep, or nissan). It also is worth mentioning that transmission type played no role in determining the price.
+```{r}
+tree1 <- rpart(price ~ year + manufacturer + fuel + odometer + transmission + drive, data = RegressionCars)
+
+fancyRpartPlot(tree1)
+```
+
+## Conclusion
+After reviewing all of these graphics I feel confident in saying their are certainly aspects of a vehivle that cause it be worth more, or less, at resale.
+
+**Factors Increasing Price - **
+newer model year, low miles, gas / diesel engine, four wheel drive, manufactured by dodge.
+
+**Factors Decreasing Price - **
+older model year, high mileage, hybrid / electric powered, front wheel drive, manufactured by honda or nissan.
